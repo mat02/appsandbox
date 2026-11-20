@@ -70,4 +70,11 @@ ASB_API HRESULT hcn_delete_endpoint(const GUID *endpoint_id);
 typedef void (*HcnAdapterCallback)(const wchar_t *friendly_name, int if_type, void *ctx);
 ASB_API int hcn_enum_adapters(HcnAdapterCallback cb, void *ctx);
 
+/* Enumerate existing HNS networks of type Transparent (Hyper-V/vSwitch-backed
+   external switches). Calls the callback for each switch found. Returns count.
+   The three fixed AppSandbox networks are skipped. Failure to enumerate is not
+   fatal and yields 0. */
+typedef void (*HcnSwitchCallback)(const wchar_t *name, const GUID *id, void *ctx);
+ASB_API int hcn_enum_switches(HcnSwitchCallback cb, void *ctx);
+
 #endif /* HCN_NETWORK_H */

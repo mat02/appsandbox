@@ -23,6 +23,8 @@ typedef HRESULT (WINAPI *PFN_HcnCloseNetwork)(void *network);
 typedef HRESULT (WINAPI *PFN_HcnCloseEndpoint)(void *endpoint);
 typedef HRESULT (WINAPI *PFN_HcnOpenNetwork)(
     REFGUID id, void **network, PWSTR *errorRecord);
+typedef HRESULT (WINAPI *PFN_HcnQueryNetworkProperties)(
+    void *network, PCWSTR query, PWSTR *properties, PWSTR *errorRecord);
 
 /* ---- Loaded function pointers ---- */
 
@@ -36,6 +38,7 @@ static PFN_HcnDeleteEndpoint   pfnDeleteEp;
 static PFN_HcnCloseNetwork     pfnCloseNet;
 static PFN_HcnCloseEndpoint    pfnCloseEp;
 static PFN_HcnOpenNetwork      pfnOpenNet;
+static PFN_HcnQueryNetworkProperties pfnQueryNet;
 
 /* ---- Helpers ---- */
 
@@ -69,6 +72,8 @@ BOOL hcn_init(void)
     pfnCloseEp    = (PFN_HcnCloseEndpoint)GetProcAddress(g_hcn_dll, "HcnCloseEndpoint");
     pfnOpenNet    = (PFN_HcnOpenNetwork)GetProcAddress(g_hcn_dll, "HcnOpenNetwork");
     pfnEnumNet    = (PFN_HcnEnumerateNetworks)GetProcAddress(g_hcn_dll, "HcnEnumerateNetworks");
+    /* Optional: only needed to list existing Transparent networks for the UI. */
+    pfnQueryNet   = (PFN_HcnQueryNetworkProperties)GetProcAddress(g_hcn_dll, "HcnQueryNetworkProperties");
 
     if (!pfnCreateNet || !pfnCreateEp || !pfnCloseNet || !pfnCloseEp) {
         FreeLibrary(g_hcn_dll);
@@ -185,6 +190,16 @@ static BOOL hcn_network_exists(const GUID *id)
         return TRUE;
     }
     return FALSE;
+}
+
+/* Parse a network GUID in either {braced} or bare form. */
+static BOOL parse_network_guid(const wchar_t *text, GUID *id)
+{
+    wchar_t braced[64];
+    if (!text || !text[0] || wcslen(text) >= ARRAYSIZE(braced) - 2) return FALSE;
+    if (text[0] == L'{') wcscpy_s(braced, ARRAYSIZE(braced), text);
+    else swprintf_s(braced, ARRAYSIZE(braced), L"{%s}", text);
+    return SUCCEEDED(CLSIDFromString(braced, id));
 }
 
 /* Delete all AppSandbox networks by their fixed GUIDs. Fast - no enumeration.
@@ -411,6 +426,22 @@ HRESULT hcn_create_external_network(GUID *network_id, const wchar_t *adapter_nam
     if (!g_hcn_dll || !pfnCreateNet)
         return E_NOT_VALID_STATE;
 
+    /* A GUID selects an existing HNS network (for example a Hyper-V vSwitch's
+       Transparent network). Borrowed networks are never deleted; see
+       hcn_delete_network. */
+    if (adapter_name && adapter_name[0]) {
+        GUID existing;
+        if (parse_network_guid(adapter_name, &existing)) {
+            if (!hcn_network_exists(&existing)) {
+                ui_log(L"External network %s does not exist.", adapter_name);
+                return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+            }
+            *network_id = existing;
+            ui_log(L"Using existing HNS network %s", adapter_name);
+            return S_OK;
+        }
+    }
+
     *network_id = APPSANDBOX_EXTERNAL_GUID;
 
     AcquireSRWLockExclusive(&g_network_lock);
@@ -544,6 +575,16 @@ HRESULT hcn_delete_network(const GUID *network_id)
         return E_NOT_VALID_STATE;
 
     StringFromGUID2(network_id, guid_str, 64);
+
+    /* Only fixed AppSandbox GUIDs are ours. A borrowed network (for example
+       a Hyper-V vSwitch) must survive VM stop/delete/startup cleanup. */
+    if (!IsEqualGUID(network_id, &APPSANDBOX_NAT_GUID) &&
+        !IsEqualGUID(network_id, &APPSANDBOX_INTERNAL_GUID) &&
+        !IsEqualGUID(network_id, &APPSANDBOX_EXTERNAL_GUID)) {
+        ui_log(L"HCN: leaving borrowed network %s intact.", guid_str);
+        return S_OK;
+    }
+
     ui_log(L"HCN: Deleting network %s...", guid_str);
 
     hr = pfnDeleteNet(network_id, &error_record);
@@ -619,5 +660,139 @@ int hcn_enum_adapters(HcnAdapterCallback cb, void *ctx)
     }
 
     HeapFree(GetProcessHeap(), 0, addrs);
+    return count;
+}
+
+/* Read the next quoted string from a JSON string array. Advances *cursor. */
+static BOOL next_json_string(const wchar_t **cursor, wchar_t *out, size_t out_len)
+{
+    const wchar_t *p;
+    size_t n = 0;
+
+    if (!cursor || !*cursor || !out || out_len == 0) return FALSE;
+    p = *cursor;
+    while (*p && *p != L'"') p++;          /* skip separators and whitespace */
+    if (!*p) return FALSE;
+    p++;
+    while (*p && *p != L'"' && n + 1 < out_len) {
+        if (*p == L'\\' && p[1]) p++;      /* \" \\ \/ are literal next char */
+        out[n++] = *p++;
+    }
+    while (*p && *p != L'"') p++;          /* overlong value: skip what we cut */
+    if (*p == L'"') p++;
+    out[n] = L'\0';
+    *cursor = p;
+    return TRUE;
+}
+
+/* Copy the string value of a JSON key out of a flat properties object. */
+static BOOL json_string_value(const wchar_t *json, const wchar_t *key,
+                              wchar_t *out, size_t out_len)
+{
+    const wchar_t *p;
+    int depth = 0;
+    size_t n = 0;
+
+    if (!json || !key || !out || out_len == 0 || json[0] != L'{') return FALSE;
+    p = json;
+    while (*p) {
+        if (*p == L'"') {
+            wchar_t found[64];
+            size_t fn = 0;
+            p++;
+            while (*p && *p != L'"' && fn + 1 < ARRAYSIZE(found)) {
+                if (*p == L'\\' && p[1]) p++;
+                found[fn++] = *p++;
+            }
+            found[fn] = L'\0';
+            while (*p && *p != L'"') p++;
+            if (*p == L'"') p++;
+            if (depth != 1 || wcscmp(found, key) != 0) continue;
+            while (*p == L' ' || *p == L'\t' || *p == L'\r' || *p == L'\n') p++;
+            if (*p != L':') return FALSE;
+            p++;
+            while (*p == L' ' || *p == L'\t' || *p == L'\r' || *p == L'\n') p++;
+            if (*p != L'"') return FALSE;
+            p++;
+            while (*p && *p != L'"' && n + 1 < out_len) {
+                if (*p == L'\\' && p[1]) {
+                    p++;
+                    switch (*p) {
+                    case L'n': out[n++] = L'\n'; break;
+                    case L'r': out[n++] = L'\r'; break;
+                    case L't': out[n++] = L'\t'; break;
+                    case L'u':
+                        /* \uXXXX; switch names are plain ASCII in practice. */
+                        p += (wcslen(p) >= 5) ? 5 : wcslen(p);
+                        continue;
+                    default: out[n++] = *p; break;  /* \" \\ \/ */
+                    }
+                    p++;
+                } else {
+                    out[n++] = *p++;
+                }
+            }
+            out[n] = L'\0';
+            return TRUE;
+        }
+        if (*p == L'{' || *p == L'[') depth++;
+        else if (*p == L'}' || *p == L']') depth--;
+        p++;
+    }
+    return FALSE;
+}
+
+int hcn_enum_switches(HcnSwitchCallback cb, void *ctx)
+{
+    PWSTR networks = NULL, error = NULL;
+    const wchar_t *cursor;
+    HRESULT hr;
+    int count = 0;
+
+    if (!g_hcn_dll || !pfnEnumNet || !pfnOpenNet || !pfnQueryNet || !cb)
+        return 0;
+
+    hr = pfnEnumNet(L"{}", &networks, &error);
+    if (error) LocalFree(error);
+    if (FAILED(hr) || !networks) {
+        if (networks) LocalFree(networks);
+        return 0;
+    }
+
+    cursor = networks;
+    while (count < 32) {
+        wchar_t text[64];
+        wchar_t name[256];
+        GUID id;
+        void *network = NULL;
+        PWSTR props = NULL, query_error = NULL;
+
+        if (!next_json_string(&cursor, text, ARRAYSIZE(text))) break;
+        if (!parse_network_guid(text, &id)) continue;
+        if (IsEqualGUID(&id, &APPSANDBOX_NAT_GUID) ||
+            IsEqualGUID(&id, &APPSANDBOX_INTERNAL_GUID) ||
+            IsEqualGUID(&id, &APPSANDBOX_EXTERNAL_GUID))
+            continue;
+
+        hr = pfnOpenNet(&id, &network, &query_error);
+        if (query_error) { LocalFree(query_error); query_error = NULL; }
+        if (FAILED(hr) || !network) {
+            if (network && pfnCloseNet) pfnCloseNet(network);
+            continue;
+        }
+
+        hr = pfnQueryNet(network, L"{}", &props, &query_error);
+        if (query_error) { LocalFree(query_error); query_error = NULL; }
+        if (SUCCEEDED(hr) && props && wcsstr(props, L"\"Type\":\"Transparent\"")) {
+            if (!json_string_value(props, L"Name", name, ARRAYSIZE(name)) || !name[0])
+                wcscpy_s(name, ARRAYSIZE(name), text);
+            cb(name, &id, ctx);
+            count++;
+        }
+        if (props) LocalFree(props);
+        if (pfnCloseNet) pfnCloseNet(network);
+    }
+
+    LocalFree(networks);
     return count;
 }
