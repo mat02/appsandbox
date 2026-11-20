@@ -1207,6 +1207,13 @@ static void handle_webview2_message(const wchar_t *json)
         if (json_get_int(json, L"cpuCores", &val)) cfg.cpu_cores = (DWORD)val;
         if (json_get_int(json, L"gpuMode", &val)) cfg.gpu_mode = val;
         if (json_get_int(json, L"networkMode", &val)) cfg.network_mode = val;
+        if (json_get_int(json, L"imageIndex", &val)) {
+            if (val < 1) {
+                ui_show_alert(L"Image index must be at least 1.");
+                return;
+            }
+            cfg.image_index = (DWORD)val;
+        }
         json_get_bool(json, L"testMode", &cfg.test_mode);
         json_get_bool(json, L"sshEnabled", &cfg.ssh_enabled);
         json_get_bool(json, L"sshDeployKey", &cfg.ssh_deploy_key);

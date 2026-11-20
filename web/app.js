@@ -122,6 +122,10 @@ function applyOsTypeUI() {
     /* .needs-windows = Windows-*guest* options (Test Mode); shown for a Windows
        guest on EITHER host (a Windows-on-Mac VM uses it too), hidden otherwise. */
     for (var w = 0; w < needsWindows.length; w++) needsWindows[w].style.display = isWindows ? '' : 'none';
+    /* .needs-image-index = Windows edition selector for ISO installs (Windows host only). */
+    var needsImageIndex = modal.querySelectorAll('.needs-image-index');
+    for (var x = 0; x < needsImageIndex.length; x++)
+        needsImageIndex[x].style.display = (isWindows && !hostBridge.isMac) ? '' : 'none';
     /* ISO picker shows for both Windows and Linux now. */
     for (var j = 0; j < needsIso.length; j++) needsIso[j].style.display = (isWindows || isLinux) ? '' : 'none';
     document.getElementById('macos-image-source').style.display = osType === 'macos27' ? '' : 'none';
@@ -672,10 +676,14 @@ function gatherConfig() {
     /* Same ISO-picker path for Windows and Linux. The cloud-image
        Linux-version dropdown is dormant (see applyOsTypeUI). */
     var imagePath = osType === 'macos27' ? undefined : document.getElementById('image-path').value.trim();
+    var imageIndex = document.getElementById('image-index').valueAsNumber;
     return {
         name:        document.getElementById('vm-name').value.trim(),
         osType:      osType,
         imagePath:   imagePath,
+        imageIndex:  (osType === 'windows11' && !hostBridge.isMac &&
+                      Number.isInteger(imageIndex) && imageIndex >= 1)
+            ? imageIndex : undefined,
         diskDirectory: document.getElementById('disk-directory').value.trim() ===
             (lastHostInfo && lastHostInfo.defaultDiskDirectory) ? '' :
             document.getElementById('disk-directory').value.trim(),
@@ -708,6 +716,7 @@ function onSshToggle() {
 
 function clearCreateForm() {
     document.getElementById('image-path').value = '';
+    document.getElementById('image-index').value = 1;
     selectTemplate('', templateDefaultLabel());
     updateCreateButtons();
 }

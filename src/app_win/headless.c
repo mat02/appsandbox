@@ -1410,6 +1410,15 @@ static int handle_request(PHTTP_REQUEST req)
                 }
             }
             if (api_json_get_int(body, L"networkMode", &iv)) cfg.network_mode = iv;
+            if (api_json_get_int(body, L"imageIndex", &iv)) {
+                if (iv < 1) {
+                    SecureZeroMemory(pass, sizeof(pass));
+                    send_err(req->RequestId, 400, "Bad Request", "invalid_arg",
+                             "imageIndex must be at least 1");
+                    return 0;
+                }
+                cfg.image_index = (DWORD)iv;
+            }
             if (api_json_get_bool(body, L"testMode", &bv)) cfg.test_mode = bv;
             if (api_json_get_bool(body, L"sshEnabled", &bv)) cfg.ssh_enabled = bv;
             if (api_json_get_bool(body, L"sshDeployKey", &bv)) cfg.ssh_deploy_key = bv;

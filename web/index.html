@@ -96,6 +96,12 @@
                 </div>
             </div>
 
+            <label for="image-index" class="needs-image-index">Image Index:</label>
+            <div class="form-row needs-image-index">
+                <input type="number" id="image-index" value="1" min="1" step="1" class="input-sm">
+                <span class="host-info">Edition in install.wim (1 = first; use dism /Get-WimInfo)</span>
+            </div>
+
             <label class="needs-linux-version">Distribution:</label>
             <div class="form-row needs-linux-version">
                 <select id="linux-version">

@@ -288,6 +288,7 @@ typedef struct { const wchar_t *name;int type;size_t limit; } Field;
 static const Field fields[]={
     {L"ramMb",API_JSON_NUMBER,0},{L"hddGb",API_JSON_NUMBER,0},
     {L"cpuCores",API_JSON_NUMBER,0},{L"gpuMode",API_JSON_NUMBER,0},
+    {L"imageIndex",API_JSON_NUMBER,0},
     {L"networkMode",API_JSON_NUMBER,0},{L"snapIndex",API_JSON_NUMBER,0},
     {L"branchIndex",API_JSON_NUMBER,0},{L"timeoutMs",API_JSON_NUMBER,0},
     {L"sshEnabled",API_JSON_TRUE,0},{L"sshDeployKey",API_JSON_TRUE,0},

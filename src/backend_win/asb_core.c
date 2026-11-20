@@ -1577,8 +1577,8 @@ static DWORD WINAPI vhdx_create_thread(LPVOID param)
 
     /* Build iso-patch command line */
     swprintf_s(cmdline, 2048,
-        L"\"%s\\iso-patch.exe\" --to-vhdx \"%s\" 1 %lu --output \"%s\" --stage \"%s\"",
-        exe_dir, args->config.image_path, args->config.hdd_gb,
+        L"\"%s\\iso-patch.exe\" --to-vhdx \"%s\" %lu %lu --output \"%s\" --stage \"%s\"",
+        exe_dir, args->config.image_path, args->config.image_index, args->config.hdd_gb,
         args->config.vhdx_path, manifest);
 
     /* Create pipe */
@@ -3510,6 +3510,7 @@ ASB_API HRESULT asb_vm_create_with_id(const AsbVmConfig *config, AsbVmId *create
     wcscpy_s(cfg.admin_pass, ARRAYSIZE(cfg.admin_pass), config->password);
     cfg.ram_mb = config->ram_mb;
     cfg.hdd_gb = config->hdd_gb;
+    cfg.image_index = config->image_index ? config->image_index : 1;
     cfg.cpu_cores = config->cpu_cores;
     cfg.gpu_mode = config->gpu_mode;
     if (config->gpu_id && config->gpu_id[0])

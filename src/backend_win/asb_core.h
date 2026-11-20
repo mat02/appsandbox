@@ -55,6 +55,7 @@ typedef struct {
     AsbTemplateId template_id;
     DWORD  ram_mb;
     DWORD  hdd_gb;
+    DWORD  image_index;            /* Windows ISO: 1-based install.wim image index; 0 = first image */
     DWORD  cpu_cores;
     int    gpu_mode;               /* ASB_GPU_NONE or ASB_GPU_DEFAULT */
     int    network_mode;           /* ASB_NET_NONE / NAT / EXTERNAL / INTERNAL */

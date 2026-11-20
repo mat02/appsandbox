@@ -35,6 +35,7 @@ typedef struct {
     wchar_t vhdx_path[MAX_PATH];  /* will be created if doesn't exist */
     DWORD   ram_mb;
     DWORD   hdd_gb;
+    DWORD   image_index;          /* 1-based install.wim image index applied by iso-patch */
     DWORD   cpu_cores;
     int     gpu_mode;
     wchar_t gpu_id[512];
