@@ -743,6 +743,8 @@ static BOOL save_vm_list(void)
         fwprintf(f, L"GpuName=%s\n", VM_AT(i).gpu_name);
         if (VM_AT(i).gpu_id[0])
             fwprintf(f, L"GpuId=%s\n", VM_AT(i).gpu_id);
+        if (VM_AT(i).gpu_share_percent)
+            fwprintf(f, L"GpuSharePercent=%lu\n", VM_AT(i).gpu_share_percent);
         fwprintf(f, L"NetworkMode=%d\n", VM_AT(i).network_mode);
         if (VM_AT(i).vlan_id)
             fwprintf(f, L"VlanId=%lu\n", VM_AT(i).vlan_id);
@@ -923,6 +925,8 @@ static void load_vm_list(void)
             wcscpy_s(vm->gpu_name, 256, line + 8);
         else if (wcsncmp(line, L"GpuId=", 6) == 0)
             wcsncpy_s(vm->gpu_id, ARRAYSIZE(vm->gpu_id), line + 6, _TRUNCATE);
+        else if (wcsncmp(line, L"GpuSharePercent=", 16) == 0)
+            vm->gpu_share_percent = (DWORD)_wtoi(line + 16);
         else if (wcsncmp(line, L"GpuDevicePath=", 14) == 0)
             { /* ignored - backwards compat */ }
         else if (wcsncmp(line, L"NetworkMode=", 12) == 0)
@@ -1843,6 +1847,7 @@ done:
                     inst->running = TRUE;
                     inst->gpu_mode = heap_inst->gpu_mode;
                     wcscpy_s(inst->gpu_id, ARRAYSIZE(inst->gpu_id), heap_inst->gpu_id);
+                    inst->gpu_share_percent = heap_inst->gpu_share_percent;
                     memcpy(&inst->gpu_shares, &heap_inst->gpu_shares, sizeof(inst->gpu_shares));
                     update_vm_gpu_name(inst);
                     inst->network_mode = heap_inst->network_mode;
@@ -2993,6 +2998,7 @@ done:
                     inst->running = TRUE;
                     inst->gpu_mode = heap_inst->gpu_mode;
                     wcscpy_s(inst->gpu_id, ARRAYSIZE(inst->gpu_id), heap_inst->gpu_id);
+                    inst->gpu_share_percent = heap_inst->gpu_share_percent;
                     update_vm_gpu_name(inst);
                     inst->network_mode = heap_inst->network_mode;
                     inst->network_id = args->network_id;
@@ -3497,6 +3503,8 @@ ASB_API HRESULT asb_vm_create_with_id(const AsbVmConfig *config, AsbVmId *create
                                                     config->name, config->is_template);
         if (!error) error = asb_validate_password(effective_os, config->password);
         if (!error) error = asb_validate_gpu_selection(config->gpu_mode, config->gpu_id);
+        if (!error && config->gpu_share_percent > 100)
+            error = L"GPU share must be between 0 and 100 percent.";
         if (error) {
             asb_log(L"Error: %s", error);
             asb_alert(error);
@@ -3521,6 +3529,7 @@ ASB_API HRESULT asb_vm_create_with_id(const AsbVmConfig *config, AsbVmId *create
     cfg.image_index = config->image_index ? config->image_index : 1;
     cfg.cpu_cores = config->cpu_cores;
     cfg.gpu_mode = config->gpu_mode;
+    cfg.gpu_share_percent = config->gpu_share_percent;
     if (config->gpu_id && config->gpu_id[0])
         wcscpy_s(cfg.gpu_id, ARRAYSIZE(cfg.gpu_id), find_gpu(config->gpu_id)->interface_path);
     cfg.network_mode = config->network_mode;
@@ -3653,6 +3662,7 @@ ASB_API HRESULT asb_vm_create_with_id(const AsbVmConfig *config, AsbVmId *create
     if (is_template_create) {
         cfg.gpu_mode = GPU_NONE;
         cfg.gpu_id[0] = L'\0';
+        cfg.gpu_share_percent = 0;
         cfg.network_mode = NET_NONE;
     }
 
@@ -3711,6 +3721,7 @@ ASB_API HRESULT asb_vm_create_with_id(const AsbVmConfig *config, AsbVmId *create
             inst->cpu_cores = cfg.cpu_cores;
             inst->gpu_mode = cfg.gpu_mode;
             wcscpy_s(inst->gpu_id, ARRAYSIZE(inst->gpu_id), cfg.gpu_id);
+            inst->gpu_share_percent = cfg.gpu_share_percent;
             update_vm_gpu_name(inst);
             inst->network_mode = cfg.network_mode;
             inst->vlan_id = cfg.vlan_id;
@@ -3827,6 +3838,7 @@ build_failed:
             inst->cpu_cores = cfg.cpu_cores;
             inst->gpu_mode = cfg.gpu_mode;
             wcscpy_s(inst->gpu_id, ARRAYSIZE(inst->gpu_id), cfg.gpu_id);
+            inst->gpu_share_percent = cfg.gpu_share_percent;
             update_vm_gpu_name(inst);
             inst->network_mode = cfg.network_mode;
             inst->vlan_id = cfg.vlan_id;
@@ -4093,6 +4105,7 @@ ASB_API HRESULT asb_vm_start(AsbVm vm, int snap_idx, int branch_idx,
         args->config.hdd_gb = inst->hdd_gb;
         args->config.cpu_cores = inst->cpu_cores;
         args->config.gpu_mode = inst->gpu_mode;
+        args->config.gpu_share_percent = inst->gpu_share_percent;
         wcscpy_s(args->config.gpu_id, ARRAYSIZE(args->config.gpu_id), inst->gpu_id);
         args->config.network_mode = inst->network_mode;
         args->config.vlan_id = inst->vlan_id;
@@ -4495,6 +4508,18 @@ ASB_API HRESULT asb_vm_set_gpu_selection(AsbVm vm, int gpu_mode, const wchar_t *
     wcscpy_s(VM_AT(idx).gpu_id, ARRAYSIZE(VM_AT(idx).gpu_id),
         gpu_id && gpu_id[0] ? find_gpu(gpu_id)->interface_path : L"");
     update_vm_gpu_name(&VM_AT(idx));
+    save_vm_list();
+    notify_state(vm, VM_AT(idx).running, g_state_ud);
+    return S_OK;
+}
+
+ASB_API HRESULT asb_vm_set_gpu_share(AsbVm vm, DWORD percent)
+{
+    int idx = vm_index_of(vm);
+    if (idx < 0) return E_INVALIDARG;
+    if (VM_AT(idx).running || VM_AT(idx).building_vhdx || VM_AT(idx).starting) return E_ACCESSDENIED;
+    if (percent > 100) return E_INVALIDARG;
+    VM_AT(idx).gpu_share_percent = percent;
     save_vm_list();
     notify_state(vm, VM_AT(idx).running, g_state_ud);
     return S_OK;

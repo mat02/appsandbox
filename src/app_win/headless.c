@@ -286,7 +286,8 @@ static int append_vm_json(char *out, int cap, int pos, VmInstance *v)
     pos += sprintf_s(out + pos, cap - pos,
         ",\"state\":\"%s\",\"running\":%s,\"agentOnline\":%s,\"installComplete\":%s,"
         "\"building\":%s,\"progress\":%d,\"sshState\":%d,\"sshPort\":%lu,"
-        "\"ramMb\":%lu,\"hddGb\":%lu,\"cpuCores\":%lu,\"gpuMode\":%d,\"networkMode\":%d,"
+        "\"ramMb\":%lu,\"hddGb\":%lu,\"cpuCores\":%lu,\"gpuMode\":%d,"
+        "\"gpuSharePercent\":%lu,\"networkMode\":%d,"
         "\"vlanId\":%lu,\"displayOpen\":%s,\"gpuId\":",
         derive_state(v),
         v->running ? "true" : "false", v->agent_online ? "true" : "false",
@@ -295,9 +296,11 @@ static int append_vm_json(char *out, int cap, int pos, VmInstance *v)
         (v->ssh_key_deployed && v->ssh_state == 2) ? 4 : v->ssh_state,   /* 4 = ready + key deployed */
         (unsigned long)v->ssh_port,
         (unsigned long)v->ram_mb, (unsigned long)v->hdd_gb, (unsigned long)v->cpu_cores,
-        v->gpu_mode, v->network_mode, (unsigned long)v->vlan_id,
+        v->gpu_mode, (unsigned long)v->gpu_share_percent, v->network_mode, (unsigned long)v->vlan_id,
         display_is_open(v->unique_id) ? "true" : "false");
     pos = append_wstr(out, cap, pos, v->gpu_id);
+    pos += sprintf_s(out + pos, cap - pos, ",\"macAddress\":");
+    pos = append_wstr(out, cap, pos, v->mac_address);
     pos += sprintf_s(out + pos, cap - pos, ",\"gpuName\":");
     pos = append_wstr(out, cap, pos, v->gpu_name);
     pos += sprintf_s(out + pos, cap - pos, "}");
@@ -328,13 +331,17 @@ static int build_host_info(char *buf, int cap)
     const GpuList *gpus = asb_gpu_list();
     wchar_t pd[MAX_PATH];
     int i, count, pos, vmCores = 0, vmRamMb = 0, vmHddGb = 0;
+    int allocated_cores = 0, allocated_ram_mb = 0, gpu_share_total = 0;
     ms.dwLength = sizeof(ms); GlobalMemoryStatusEx(&ms);
     asb_default_disk_directory(pd,MAX_PATH);
     freeB.QuadPart = 0; GetDiskFreeSpaceExW(pd, &freeB, NULL, NULL);
     count = asb_vm_count();
-    for (i = 0; i < count; i++) {
+    for (i = 0; i < count; ++i) {
         VmInstance *v = asb_vm_instance(asb_vm_get(i));
         if (!v) continue;
+        allocated_cores += (int)v->cpu_cores;
+        allocated_ram_mb += (int)v->ram_mb;
+        gpu_share_total += (int)v->gpu_share_percent;
         if (v->running) { vmCores += (int)v->cpu_cores; vmRamMb += (int)v->ram_mb; }
         vmHddGb += (int)v->hdd_gb;
     }
@@ -347,7 +354,9 @@ static int build_host_info(char *buf, int cap)
         vmCores, vmRamMb, vmHddGb);
     asb_default_disk_directory(pd, MAX_PATH);
     pos = append_wstr(buf, cap, pos, pd);
-    pos += sprintf_s(buf + pos, cap - pos, ",\"gpus\":[");
+    pos += sprintf_s(buf + pos, cap - pos,
+        ",\"allocatedCpuCores\":%d,\"allocatedRamMb\":%d,\"gpuShareTotal\":%d,\"gpus\":[",
+        allocated_cores, allocated_ram_mb, gpu_share_total);
     for (i = 0; gpus && i < gpus->count; i++) {
         if (i) pos += sprintf_s(buf + pos, cap - pos, ",");
         pos += sprintf_s(buf + pos, cap - pos, "{\"id\":");
@@ -1290,6 +1299,19 @@ static int handle_request(PHTTP_REQUEST req)
         send_json(req->RequestId, 200, "OK", buf);
         return 0;
     }
+    if (wcscmp(path, L"/v1/templates/rescan") == 0) {
+        if (verb != HttpVerbPOST) { send_err(req->RequestId,405,"Method Not Allowed","method","use POST");return 0; }
+        asb_template_rescan();
+        int count = asb_template_count();
+        pos = sprintf_s(buf, sizeof(buf), "{\"templates\":[");
+        for (i = 0; i < count; i++) {
+            if (i) pos += sprintf_s(buf + pos, sizeof(buf) - pos, ",");
+            pos=append_template_json(buf,sizeof(buf),pos,asb_template_id(i));
+        }
+        sprintf_s(buf + pos, sizeof(buf) - pos, "]}");
+        send_json(req->RequestId, 200, "OK", buf);
+        return 0;
+    }
     if (!wcsncmp(path,L"/v1/templates/",14) || !wcsncmp(path,L"/v1/template-ids/",17)) {
         BOOL by_id=!wcsncmp(path,L"/v1/template-ids/",17);
         AsbTemplateId template_id=by_id?asb_template_id_parse_w(path+17):asb_template_id_by_name(path+14);
@@ -1410,6 +1432,15 @@ static int handle_request(PHTTP_REQUEST req)
                     send_err(req->RequestId, 400, "Bad Request", "invalid_arg", message);
                     return 0;
                 }
+            }
+            if (api_json_get_int(body, L"gpuSharePercent", &iv)) {
+                if (iv < 0 || iv > 100) {
+                    SecureZeroMemory(pass, sizeof(pass));
+                    send_err(req->RequestId, 400, "Bad Request", "invalid_arg",
+                             "gpuSharePercent must be between 0 and 100");
+                    return 0;
+                }
+                cfg.gpu_share_percent = (DWORD)iv;
             }
             if (api_json_get_int(body, L"networkMode", &iv)) cfg.network_mode = iv;
             if (api_json_get_int(body, L"imageIndex", &iv)) {
@@ -1610,6 +1641,14 @@ static int handle_request(PHTTP_REQUEST req)
                         send_hr(req->RequestId, "editVm", nu, vm_id, hr);
                         return 0;
                     }
+                }
+                if (api_json_get_int(body, L"gpuSharePercent", &iv)) {
+                    if (iv < 0 || iv > 100) {
+                        send_err(req->RequestId, 400, "Bad Request", "invalid_arg",
+                                 "gpuSharePercent must be between 0 and 100");
+                        return 0;
+                    }
+                    hr = asb_vm_set_gpu_share(vm, (DWORD)iv);
                 }
                 if (api_json_get_int(body, L"networkMode", &iv)) {
                     if (iv < 0 || iv > 3) { send_err(req->RequestId, 400, "Bad Request", "invalid_arg", "networkMode must be 0 (None), 1 (NAT), 2 (External), or 3 (Internal)"); return 0; }

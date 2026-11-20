@@ -255,6 +255,7 @@ static void build_host_info_json(JsonBuilder *jb)
     GpuList *gpu_list = asb_gpu_list();
     DWORD host_cores, host_ram_mb;
     DWORD vm_cores = 0, vm_ram_mb = 0, vm_hdd_gb = 0;
+    DWORD allocated_cores = 0, allocated_ram_mb = 0, gpu_share_total = 0;
     wchar_t base_dir[MAX_PATH];
     int free_gb;
     int i, count = asb_vm_count();
@@ -266,8 +267,12 @@ static void build_host_info_json(JsonBuilder *jb)
 
     for (i = 0; i < count; i++) {
         VmInstance *v = asb_vm_instance(asb_vm_get(i));
-        if (v && v->running) { vm_cores += v->cpu_cores; vm_ram_mb += v->ram_mb; }
-        if (v) vm_hdd_gb += v->hdd_gb;
+        if (!v) continue;
+        allocated_cores += v->cpu_cores;
+        allocated_ram_mb += v->ram_mb;
+        gpu_share_total += v->gpu_share_percent;
+        if (v->running) { vm_cores += v->cpu_cores; vm_ram_mb += v->ram_mb; }
+        vm_hdd_gb += v->hdd_gb;
     }
 
     asb_default_disk_directory(base_dir, MAX_PATH);
@@ -277,6 +282,9 @@ static void build_host_info_json(JsonBuilder *jb)
     jb_int(jb, L"hostRamMb", (int)host_ram_mb);
     jb_int(jb, L"vmCores", (int)vm_cores);
     jb_int(jb, L"vmRamMb", (int)vm_ram_mb);
+    jb_int(jb, L"allocatedCpuCores", (int)allocated_cores);
+    jb_int(jb, L"allocatedRamMb", (int)allocated_ram_mb);
+    jb_int(jb, L"gpuShareTotal", (int)gpu_share_total);
     jb_int(jb, L"freeGb", free_gb);
     jb_int(jb, L"vmHddGb", (int)vm_hdd_gb);
     jb_string(jb, L"defaultDiskDirectory", base_dir);
@@ -338,8 +346,10 @@ static void build_vm_json(JsonBuilder *jb, int i)
     jb_int(jb, L"hddGb", (int)v->hdd_gb);
     jb_int(jb, L"cpuCores", (int)v->cpu_cores);
     jb_int(jb, L"gpuMode", v->gpu_mode);
+    jb_int(jb, L"gpuSharePercent", (int)v->gpu_share_percent);
     jb_string(jb, L"gpuId", v->gpu_id);
     jb_string(jb, L"gpuName", v->gpu_name);
+    jb_string(jb, L"macAddress", v->mac_address);
     jb_int(jb, L"networkMode", v->network_mode);
     jb_string(jb, L"netAdapter", v->net_adapter);
     jb_int(jb, L"vlanId", (int)v->vlan_id);
@@ -1261,6 +1271,14 @@ static void handle_webview2_message(const wchar_t *json)
         if (json_get_int(json, L"ramMb", &val)) cfg.ram_mb = (DWORD)val;
         if (json_get_int(json, L"cpuCores", &val)) cfg.cpu_cores = (DWORD)val;
         if (json_get_int(json, L"gpuMode", &val)) cfg.gpu_mode = val;
+        if (json_get_int(json, L"gpuSharePercent", &val)) {
+            if (val < 0 || val > 100) {
+                SecureZeroMemory(pass_buf, sizeof(pass_buf));
+                ui_show_alert(L"GPU share must be between 0 and 100 percent.");
+                return;
+            }
+            cfg.gpu_share_percent = (DWORD)val;
+        }
         if (json_get_int(json, L"networkMode", &val)) cfg.network_mode = val;
         if (json_get_int(json, L"imageIndex", &val)) {
             if (val < 1) {
@@ -1390,6 +1408,9 @@ static void handle_webview2_message(const wchar_t *json)
             send_vm_list();
             ui_log(L"VM deleted.");
         }
+    } else if (wcscmp(action, L"rescanTemplates") == 0) {
+        asb_template_rescan();
+        send_templates();
     } else if (wcscmp(action, L"deleteTemplate") == 0) {
         wchar_t tpl_name[256] = { 0 };
         wchar_t template_id_text[ASB_TEMPLATE_ID_TEXT_SIZE]={0};
@@ -1437,6 +1458,7 @@ static void handle_webview2_message(const wchar_t *json)
                     if (!error) hr = asb_vm_set_gpu_selection(vm, mode, gpu_id);
                 }
                 else if (wcscmp(field, L"networkMode") == 0) hr = asb_vm_set_network(vm, _wtoi(value));
+                else if (wcscmp(field, L"gpuSharePercent") == 0) hr = asb_vm_set_gpu_share(vm, (DWORD)_wtoi(value));
                 else if (wcscmp(field, L"netAdapter") == 0) hr = asb_vm_set_net_adapter(vm, value);
                 else if (wcscmp(field, L"vlanId") == 0) hr = asb_vm_set_vlan(vm, (DWORD)_wtoi(value));
                 if (FAILED(hr)) ui_show_alert(error ? error : L"VM configuration could not be updated.");

@@ -39,6 +39,7 @@ typedef struct {
     DWORD   cpu_cores;
     int     gpu_mode;
     wchar_t gpu_id[512];
+    DWORD   gpu_share_percent;    /* 0 = legacy/full; 1..100 = partition share */
     int     network_mode;         /* NET_NONE, NET_NAT, NET_EXTERNAL, or NET_INTERNAL */
     DWORD   vlan_id;              /* External trunk VLAN (0 = untagged) */
     wchar_t mac_address[18];
@@ -66,6 +67,7 @@ typedef struct {
     int         gpu_mode;
     wchar_t     gpu_name[256];
     wchar_t     gpu_id[512];
+    DWORD       gpu_share_percent;    /* 0 = legacy/full; 1..100 = partition share */
     int         network_mode;
     DWORD       vlan_id;              /* External trunk VLAN (0 = untagged) */
     wchar_t     net_adapter[256];     /* Adapter name for External network */

@@ -288,6 +288,7 @@ typedef struct { const wchar_t *name;int type;size_t limit; } Field;
 static const Field fields[]={
     {L"ramMb",API_JSON_NUMBER,0},{L"hddGb",API_JSON_NUMBER,0},
     {L"cpuCores",API_JSON_NUMBER,0},{L"gpuMode",API_JSON_NUMBER,0},
+    {L"gpuSharePercent",API_JSON_NUMBER,0},
     {L"imageIndex",API_JSON_NUMBER,0},
     {L"vlanId",API_JSON_NUMBER,0},
     {L"networkMode",API_JSON_NUMBER,0},{L"snapIndex",API_JSON_NUMBER,0},
@@ -445,5 +446,5 @@ const char *asb_api_vm_fields_json(void)
     return "[\"id\",\"name\",\"osType\",\"osName\",\"diskDirectory\",\"state\",\"running\","
         "\"agentOnline\",\"installComplete\",\"building\",\"progress\",\"sshState\","
         "\"sshPort\",\"ramMb\",\"hddGb\",\"cpuCores\",\"gpuMode\",\"networkMode\","
-        "\"displayOpen\",\"gpuId\",\"gpuName\"]";
+        "\"displayOpen\",\"gpuId\",\"gpuName\",\"macAddress\",\"gpuSharePercent\"]";
 }

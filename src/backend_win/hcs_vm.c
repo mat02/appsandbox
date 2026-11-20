@@ -1288,6 +1288,7 @@ HRESULT hcs_create_vm(const VmConfig *config, VmInstance *instance)
         instance->cpu_cores = config->cpu_cores;
         instance->gpu_mode = config->gpu_mode;
         wcscpy_s(instance->gpu_id, 512, config->gpu_id);
+        instance->gpu_share_percent = config->gpu_share_percent;
         instance->network_mode = config->network_mode;
         instance->vlan_id = config->vlan_id;
         instance->is_template = config->is_template;
@@ -1382,6 +1383,7 @@ HRESULT hcs_create_vm_with_endpoint(const VmConfig *config, const wchar_t *endpo
         instance->cpu_cores = config->cpu_cores;
         instance->gpu_mode = config->gpu_mode;
         wcscpy_s(instance->gpu_id, 512, config->gpu_id);
+        instance->gpu_share_percent = config->gpu_share_percent;
         instance->network_mode = config->network_mode;
         instance->vlan_id = config->vlan_id;
         instance->is_template = config->is_template;
@@ -1413,6 +1415,10 @@ static HRESULT hcs_apply_gpu(VmInstance *instance)
     if (instance->gpu_mode != GPU_DEFAULT)
         return S_OK;
 
+    /* HCS GPU-PV uses 0xffff to ask HCS to assign any available GPU
+       partition. HCS has no per-VM partition VRAM/share percentage; the
+       gpu_share_percent value is a scheduling hint for external callers,
+       not a hardware-enforced HCS setting. */
     ui_log(L"Applying GPU-PV...");
 
     for (attempt = 0; attempt < 2; attempt++) {

@@ -194,7 +194,8 @@ A VM status object contains:
 ```text
 id, name, osType, osName, diskDirectory, state, running, agentOnline,
 installComplete, building, progress, sshState, sshPort, ramMb,
-hddGb, cpuCores, gpuMode, networkMode, displayOpen, gpuId, gpuName
+hddGb, cpuCores, gpuMode, gpuSharePercent, networkMode, displayOpen,
+gpuId, gpuName, macAddress
 ```
 
 Both hosts derive `state` using the same order:
@@ -264,6 +265,7 @@ Paths refer to files and directories on the host running AppSandbox.
 | `cpuCores` | At least 1. Omitted or zero uses 4. |
 | `gpuMode` | `0` None, `1` Default GPU mode. Acceleration depends on the host and guest platform. |
 | `gpuId` | Select a GPU from `host()["gpus"]` on Windows hosts. |
+| `gpuSharePercent` | External scheduling hint, `0..100`, not a hardware-enforced HCS setting. `25` models a four-VM split; AppSandbox GPU-PV still asks HCS for an available partition and shares the GPU dynamically. |
 | `networkMode` | Defaults to `1` NAT. Supported values are listed in `capabilities.networkModes`. |
 | `netAdapter` | Host network adapter name for External mode on Windows hosts. May also be an existing HNS network/switch GUID (bare or `{braced}`) to attach to a Hyper-V vSwitch such as `Switch01`; that network is reused and never deleted. |
 | `adminUser` | Required guest account name. Ubuntu: at most 32 characters, starts with `[a-z_]`, then `[a-z0-9_-]`. Windows: at most 20 characters, subject to Windows account-name rules; for a VM, the account name must differ from its VM name. Native macOS: at most 63 UTF-8 bytes, no spaces or reserved names. |
@@ -300,13 +302,15 @@ VM-specific methods below also accept `vm_id=...` in place of `name`.
 | `shutdown_daemon(force=False)` | `(status, body)`; stop AppSandbox; active VMs prevent shutdown unless forced |
 
 `host()` returns `hostCores`, `hostRamMb`, `freeGb`, `vmCores`, `vmRamMb`,
-`vmHddGb`, `defaultDiskDirectory`, and `gpus`. GPU entries contain `id`,
+`allocatedCpuCores`, `allocatedRamMb`, `gpuShareTotal`, `vmHddGb`,
+`defaultDiskDirectory`, and `gpus`. `vmCores`/`vmRamMb` count running VMs;
+`allocated*` count all VMs, running or stopped. GPU entries contain `id`,
 `name`, and `location`; macOS returns an empty GPU-selection list.
 
-`edit()` accepts `ramMb`, `cpuCores`, `gpuMode`, `gpuId`, and `networkMode`.
-The VM must be stopped and its configuration unlocked. Names are fixed at
-creation. Query failures raise exceptions; action failures are returned in
-the `(status, body)` result.
+`edit()` accepts `ramMb`, `cpuCores`, `gpuMode`, `gpuId`, `gpuSharePercent`,
+`networkMode`, `netAdapter`, and `vlanId`. The VM must be stopped and its
+configuration unlocked. Names are fixed at creation. Query failures raise
+exceptions; action failures are returned in the `(status, body)` result.
 
 ## Templates, snapshots, and branches
 
@@ -589,6 +593,7 @@ place of `/template-ids/{template_id}`.
 | POST | `/vm-ids/{vm_id}/stop` | Force-stop |
 | POST | `/vm-ids/{vm_id}/delete` | Delete VM |
 | GET, POST | `/templates` | List completed templates or create one |
+| POST | `/templates/rescan` | Rescan the template library after a manual import |
 | GET, DELETE | `/template-ids/{template_id}` | Read/delete a template, or cancel a build where supported |
 | GET, POST, DELETE | `/vm-ids/{vm_id}/display` | Read viewer status, open/focus, or close |
 | POST | `/vm-ids/{vm_id}/screenshot` | PNG screenshot; optional `timeoutMs` |

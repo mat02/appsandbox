@@ -94,6 +94,7 @@
                     <div class="template-dropdown-list" id="template-dropdown-list"></div>
                     <input type="hidden" id="template-select" value="">
                 </div>
+                <button id="btn-template-rescan" class="disk-location-btn templates-supported" title="Rescan the template library" onclick="sendCmd('rescanTemplates')">Rescan</button>
             </div>
 
             <label for="image-index" class="needs-image-index">Image Index:</label>
@@ -131,10 +132,16 @@
 
             <label for="gpu-mode">GPU:</label>
             <div class="form-row">
-                <select id="gpu-mode">
+                <select id="gpu-mode" onchange="onGpuModeChange()">
                     <option value="0">None</option>
                     <option value="1" selected>Default GPU</option>
                 </select>
+            </div>
+
+            <label for="gpu-share" id="gpu-share-label">GPU Share:</label>
+            <div class="form-row" id="gpu-share-row">
+                <input type="number" id="gpu-share" value="0" min="0" max="100" step="1" class="input-sm"> %
+                <span class="host-info">Scheduling hint; GPU is shared dynamically</span>
             </div>
 
             <label for="net-mode" class="windows-host-only">Network:</label>
@@ -223,11 +230,20 @@
 
                 <label for="edit-gpu-mode" class="win-only">GPU:</label>
                 <div class="form-row win-only">
-                    <select id="edit-gpu-mode">
+                    <select id="edit-gpu-mode" onchange="onEditGpuModeChange()">
                         <option value="0">None</option>
                         <option value="1">Default GPU</option>
                     </select>
                 </div>
+
+                <label for="edit-gpu-share" id="edit-gpu-share-label" class="win-only">GPU Share:</label>
+                <div class="form-row win-only" id="edit-gpu-share-row">
+                    <input type="number" id="edit-gpu-share" min="0" max="100" step="1" class="input-sm"> %
+                    <span class="host-info">Scheduling hint; GPU is shared</span>
+                </div>
+
+                <label class="win-only">MAC Address:</label>
+                <div class="form-row win-only"><span id="edit-mac" class="host-info"></span></div>
 
                 <label for="edit-net-mode" class="win-only">Network:</label>
                 <div class="form-row win-only">

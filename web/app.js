@@ -232,9 +232,12 @@ function updateHostInfo(info) {
         diskDirectory.value = info.defaultDiskDirectory;
     var el;
     el = document.getElementById('host-cpu');
-    if (el) el.textContent = 'Host: ' + info.hostCores + ' cores | VMs using: ' + info.vmCores;
+    if (el) el.textContent = 'Host: ' + info.hostCores + ' cores | VMs using: ' + info.vmCores +
+        (typeof info.allocatedCpuCores === 'number' ? ' | Allocated: ' + info.allocatedCpuCores : '');
     el = document.getElementById('host-ram');
-    if (el) el.textContent = 'Host: ' + info.hostRamMb + ' MB | VMs using: ' + info.vmRamMb + ' MB';
+    if (el) el.textContent = 'Host: ' + info.hostRamMb + ' MB | VMs using: ' + info.vmRamMb + ' MB' +
+        (typeof info.allocatedRamMb === 'number' ? ' | Allocated: ' + info.allocatedRamMb + ' MB' : '') +
+        (typeof info.gpuShareTotal === 'number' ? ' | GPU: ' + info.gpuShareTotal + '%' : '');
     document.getElementById('edit-host-cpu').textContent = document.getElementById('host-cpu').textContent;
     document.getElementById('edit-host-ram').textContent = document.getElementById('host-ram').textContent;
     if (previousDefault !== info.defaultDiskDirectory) refreshDiskSpaceInfo();
@@ -611,6 +614,10 @@ function createValidationError(isTemplate) {
         var input = document.getElementById(numericFields[i][0]);
         if (input.value === '' || !input.validity.valid) return numericFields[i][1];
     }
+    var gpuShare = document.getElementById('gpu-share');
+    if (!hostBridge.isMac && selectedGpu('gpu-mode').gpuMode === 1 &&
+        (gpuShare.value === '' || !gpuShare.validity.valid))
+        return 'GPU share must be a whole number between 0 and 100 percent.';
 
     var path = selectedDiskDirectory();
     var diskKnown = diskSpaceInfo && diskSpaceInfo.path === path;
@@ -697,6 +704,22 @@ function hidePassword() {
     document.getElementById('admin-confirm').type = 'password';
 }
 
+function onGpuModeChange() {
+    var mode = selectedGpu('gpu-mode').gpuMode;
+    var show = (!hostBridge.isMac && mode === 1) ? '' : 'none';
+    document.getElementById('gpu-share').style.display = show;
+    document.getElementById('gpu-share-label').style.display = show;
+    document.getElementById('gpu-share-row').style.display = show;
+}
+
+function onEditGpuModeChange() {
+    var mode = selectedGpu('edit-gpu-mode').gpuMode;
+    var show = (!hostBridge.isMac && mode === 1) ? '' : 'none';
+    document.getElementById('edit-gpu-share').style.display = show;
+    document.getElementById('edit-gpu-share-label').style.display = show;
+    document.getElementById('edit-gpu-share-row').style.display = show;
+}
+
 function onNetModeChange() {
     /* Adapter/switch dropdown and VLAN input only relevant for External */
     var mode = parseInt(document.getElementById('net-mode').value);
@@ -716,12 +739,14 @@ function onEditNetModeChange() {
     document.getElementById('edit-vlan-label').style.display = show;
 }
 onNetModeChange();
+onGpuModeChange();
 
 /* ---- Create VM ---- */
 
 function gatherConfig() {
     var osType = document.getElementById('os-type').value;
     var gpu = selectedGpu('gpu-mode');
+    var gpuShare = document.getElementById('gpu-share').valueAsNumber;
     /* Same ISO-picker path for Windows and Linux. The cloud-image
        Linux-version dropdown is dormant (see applyOsTypeUI). */
     var imagePath = osType === 'macos27' ? undefined : document.getElementById('image-path').value.trim();
@@ -744,6 +769,9 @@ function gatherConfig() {
         ramMb:       alignRamMb(document.getElementById('ram-size').valueAsNumber),
         cpuCores:    document.getElementById('cpu-cores').valueAsNumber,
         gpuMode:     gpu.gpuMode,
+        gpuSharePercent: (gpu.gpuMode === 1 && !hostBridge.isMac &&
+                          Number.isInteger(gpuShare) && gpuShare >= 0 && gpuShare <= 100)
+            ? gpuShare : undefined,
         gpuId:       gpu.gpuId,
         networkMode: netMode,
         netAdapter:  hostBridge.isMac ? '' : document.getElementById('net-adapter').value,
@@ -770,6 +798,7 @@ function onSshToggle() {
 function clearCreateForm() {
     document.getElementById('image-path').value = '';
     document.getElementById('image-index').value = 1;
+    document.getElementById('gpu-share').value = 0;
     document.getElementById('vlan-id').value = 0;
     selectTemplate('', templateDefaultLabel());
     updateCreateButtons();
@@ -917,6 +946,7 @@ function openCreateModal() {
     selectTemplate('', templateDefaultLabel());
     document.getElementById('hdd-size').value = 64;
     setGpuSelection('gpu-mode', { gpuMode: 1 });
+    document.getElementById('gpu-share').value = 0;
     document.getElementById('net-mode').value = '1';
     document.getElementById('admin-user').value = 'user';
     document.getElementById('admin-pass').value = 'test123';
@@ -938,6 +968,7 @@ function openCreateModal() {
     document.getElementById('admin-pass-warn').textContent = '';
     checkPasswordMatch();
     onNetModeChange();
+    onGpuModeChange();
     applyOsTypeUI();   /* fires updateCreateButtons + revalidateVmName */
 
     document.getElementById('create-vm-overlay').classList.add('active');
@@ -1310,6 +1341,9 @@ function openEditVmModal(idx) {
     document.getElementById('edit-ram-size').min = 4096;
     document.getElementById('edit-cpu-cores').value = vm.cpuCores;
     setGpuSelection('edit-gpu-mode', vm);
+    document.getElementById('edit-gpu-share').value = vm.gpuSharePercent || 0;
+    document.getElementById('edit-mac').textContent = vm.macAddress || '';
+    onEditGpuModeChange();
     document.getElementById('edit-net-mode').value = String(vm.networkMode);
     populateEditAdapter(vm);
     document.getElementById('edit-vlan-id').value = vm.vlanId || 0;
@@ -1343,6 +1377,7 @@ function editVmValues() {
     };
     if (!hostBridge.isMac) {
         Object.assign(values, selectedGpu('edit-gpu-mode'));
+        values.gpuSharePercent = document.getElementById('edit-gpu-share').valueAsNumber;
         values.networkMode = Number(document.getElementById('edit-net-mode').value);
         values.netAdapter = document.getElementById('edit-net-adapter').value;
         values.vlanId = document.getElementById('edit-vlan-id').valueAsNumber;
@@ -1357,6 +1392,9 @@ function editVmValidationError(values) {
     if (values.ramMb !== editVmState.initial.ramMb &&
         (!Number.isInteger(values.ramMb) || values.ramMb < minRam || values.ramMb > 2147483647))
         return 'RAM must be a whole number of at least ' + minRam + ' MB.';
+    if (!hostBridge.isMac && values.gpuMode === 1 &&
+        (!Number.isInteger(values.gpuSharePercent) || values.gpuSharePercent < 0 || values.gpuSharePercent > 100))
+        return 'GPU share must be a whole number between 0 and 100 percent.';
     if (!hostBridge.isMac && values.networkMode === 2 &&
         (!Number.isInteger(values.vlanId) || values.vlanId < 0 || values.vlanId > 4094))
         return 'VLAN ID must be a whole number between 0 and 4094.';
@@ -1372,6 +1410,7 @@ function updateEditVmModal() {
     var conflict = false;
     var fields = { ramMb: 'edit-ram-size', cpuCores: 'edit-cpu-cores' };
     if (!hostBridge.isMac) {
+        fields.gpuSharePercent = 'edit-gpu-share';
         fields.networkMode = 'edit-net-mode';
         fields.netAdapter = 'edit-net-adapter';
         fields.vlanId = 'edit-vlan-id';
@@ -1387,6 +1426,7 @@ function updateEditVmModal() {
         editVmState.initial[field] = vm[field];
     });
     onEditNetModeChange();
+    onEditGpuModeChange();
     if (!hostBridge.isMac && gpuSelectionValue(vm) !== gpuSelectionValue(editVmState.initial)) {
         if (gpuSelectionValue(values) !== gpuSelectionValue(editVmState.initial) &&
             gpuSelectionValue(values) !== gpuSelectionValue(vm)) conflict = true;

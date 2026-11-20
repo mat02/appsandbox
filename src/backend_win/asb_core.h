@@ -58,6 +58,7 @@ typedef struct {
     DWORD  image_index;            /* Windows ISO: 1-based install.wim image index; 0 = first image */
     DWORD  cpu_cores;
     int    gpu_mode;               /* ASB_GPU_NONE or ASB_GPU_DEFAULT */
+    DWORD  gpu_share_percent;      /* 0 = legacy/full; 1..100 = partition share */
     int    network_mode;           /* ASB_NET_NONE / NAT / EXTERNAL / INTERNAL */
     DWORD  vlan_id;                /* External trunk VLAN (0 = untagged) */
     const wchar_t *net_adapter;    /* for external mode, or NULL for auto */
@@ -206,6 +207,7 @@ ASB_API HRESULT asb_vm_set_ram(AsbVm vm, DWORD ram_mb);
 ASB_API HRESULT asb_vm_set_cpu(AsbVm vm, DWORD cores);
 ASB_API HRESULT asb_vm_set_gpu(AsbVm vm, int gpu_mode);
 ASB_API HRESULT asb_vm_set_gpu_selection(AsbVm vm, int gpu_mode, const wchar_t *gpu_id);
+ASB_API HRESULT asb_vm_set_gpu_share(AsbVm vm, DWORD percent);
 ASB_API HRESULT asb_vm_set_network(AsbVm vm, int mode);
 ASB_API HRESULT asb_vm_set_net_adapter(AsbVm vm, const wchar_t *adapter);
 ASB_API HRESULT asb_vm_set_vlan(AsbVm vm, DWORD vlan_id);
