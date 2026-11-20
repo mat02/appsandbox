@@ -145,8 +145,11 @@
                     <option value="2">External</option>
                     <option value="3">Internal</option>
                 </select>
-                <label id="net-adapter-label" style="text-align:left">Adapter:</label>
+                <label id="net-adapter-label" style="text-align:left">Adapter / Switch:</label>
                 <select id="net-adapter"></select>
+                <label id="vlan-label" style="text-align:left">VLAN ID:</label>
+                <input type="number" id="vlan-id" value="0" min="0" max="4094" step="1" class="input-sm">
+                <span class="host-info">0 = untagged</span>
             </div>
 
             <label>Username:</label>
@@ -234,6 +237,17 @@
                         <option value="2">External</option>
                         <option value="3">Internal</option>
                     </select>
+                </div>
+
+                <label for="edit-net-adapter" id="edit-net-adapter-label" class="win-only" style="text-align:left">Adapter / Switch:</label>
+                <div class="form-row win-only">
+                    <select id="edit-net-adapter"></select>
+                </div>
+
+                <label for="edit-vlan-id" id="edit-vlan-label" class="win-only" style="text-align:left">VLAN ID:</label>
+                <div class="form-row win-only">
+                    <input type="number" id="edit-vlan-id" value="0" min="0" max="4094" step="1" class="input-sm">
+                    <span class="host-info">0 = untagged</span>
                 </div>
             </div>
             <span id="edit-vm-warn" class="field-warn" aria-live="polite"></span>

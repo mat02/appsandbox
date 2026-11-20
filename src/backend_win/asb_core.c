@@ -4512,6 +4512,31 @@ ASB_API HRESULT asb_vm_set_network(AsbVm vm, int mode)
     return S_OK;
 }
 
+ASB_API HRESULT asb_vm_set_net_adapter(AsbVm vm, const wchar_t *adapter)
+{
+    int idx = vm_index_of(vm);
+    if (idx < 0) return E_INVALIDARG;
+    if (VM_AT(idx).running || VM_AT(idx).building_vhdx || VM_AT(idx).starting) return E_ACCESSDENIED;
+    if (adapter && wcslen(adapter) >= ARRAYSIZE(VM_AT(idx).net_adapter)) return E_INVALIDARG;
+    wcscpy_s(VM_AT(idx).net_adapter, ARRAYSIZE(VM_AT(idx).net_adapter),
+             adapter ? adapter : L"");
+    save_vm_list();
+    notify_state(vm, VM_AT(idx).running, g_state_ud);
+    return S_OK;
+}
+
+ASB_API HRESULT asb_vm_set_vlan(AsbVm vm, DWORD vlan_id)
+{
+    int idx = vm_index_of(vm);
+    if (idx < 0) return E_INVALIDARG;
+    if (VM_AT(idx).running || VM_AT(idx).building_vhdx || VM_AT(idx).starting) return E_ACCESSDENIED;
+    if (vlan_id > 4094) return E_INVALIDARG;
+    VM_AT(idx).vlan_id = vlan_id;
+    save_vm_list();
+    notify_state(vm, VM_AT(idx).running, g_state_ud);
+    return S_OK;
+}
+
 /* ---- Snapshots ---- */
 
 ASB_API HRESULT asb_snap_take(AsbVm vm, const wchar_t *name)

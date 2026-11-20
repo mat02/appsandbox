@@ -256,7 +256,7 @@ Paths refer to files and directories on the host running AppSandbox.
 | `osType` | Required. Choose a value from `capabilities.guestOs`, or `templateGuestOs` when creating a template. Use `windows11`, `ubuntu2604lts`, or `macos27` as advertised by the host. |
 | `imagePath` | Host path to a Windows or Ubuntu 26.04 LTS installer ISO, required when creating from an image. Omit for `macos27` to automatically download and cache the macOS restore image. Omit when using a template. |
 | `imageIndex` | Windows hosts, ISO installs: 1-based index of the edition in the ISO's `install.wim` or `install.esd`. `1` is the first image, which is Windows 11 Home on the retail multi-edition ISO; `5` selects Windows 11 Pro there. Run `dism /Get-WimInfo /WimFile:<iso>\sources\install.wim` to list editions. Omitted uses `1`. Ignored when cloning a template. |
-| `vlanId` | Windows External network only: 802.1Q VLAN ID (0–4094) applied to the VM's HNS endpoint when attached to a trunk switch. Omitted or `0` leaves the endpoint untagged. |
+| `vlanId` | Windows External network only, valid on create and edit: 802.1Q VLAN ID (0–4094) applied to the VM's HNS endpoint when attached to a trunk switch. Omitted or `0` leaves the endpoint untagged. |
 | `templateName` / `templateId` | Select one ready template matching the guest OS. `templateId` uses the `template-…` identity. Specify only one selector. |
 | `diskDirectory` | Parent directory for the VM's storage; omitted or empty uses the host's `defaultDiskDirectory`. |
 | `ramMb` | At least 4096 MB and an even integer. Omitted or zero uses half the host's RAM, with a 4096 MB floor and a 12288 MB cap. The cap applies only to the automatic default; explicit allocations can be larger. |
@@ -265,7 +265,7 @@ Paths refer to files and directories on the host running AppSandbox.
 | `gpuMode` | `0` None, `1` Default GPU mode. Acceleration depends on the host and guest platform. |
 | `gpuId` | Select a GPU from `host()["gpus"]` on Windows hosts. |
 | `networkMode` | Defaults to `1` NAT. Supported values are listed in `capabilities.networkModes`. |
-| `netAdapter` | Host network adapter name for External mode on Windows hosts. |
+| `netAdapter` | Host network adapter name for External mode on Windows hosts. May also be an existing HNS network/switch GUID (bare or `{braced}`) to attach to a Hyper-V vSwitch such as `Switch01`; that network is reused and never deleted. |
 | `adminUser` | Required guest account name. Ubuntu: at most 32 characters, starts with `[a-z_]`, then `[a-z0-9_-]`. Windows: at most 20 characters, subject to Windows account-name rules; for a VM, the account name must differ from its VM name. Native macOS: at most 63 UTF-8 bytes, no spaces or reserved names. |
 | `adminPass` | Required, nonempty guest account password. Ubuntu: at least 6 characters and at most 255 UTF-8 bytes. Windows: at most 127 UTF-16 code units. Native macOS: at least 4 characters and at most 127 UTF-8 bytes. |
 | `testMode` | Windows 11 guests only. Disable Secure Boot and enable Windows test-signing. |

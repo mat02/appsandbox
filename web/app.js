@@ -162,7 +162,7 @@ window.onHostMessage = function(msg) {
         case 'diskDirectoryBrowseResult': onDiskDirectoryBrowseResult(msg.path); break;
         case 'diskSpace':     onDiskSpace(msg); break;
         case 'confirmResult': if (pendingConfirm) pendingConfirm.resolve(msg.confirmed); break;
-        case 'adapters':      populateAdapters(msg.adapters, msg.defaultIndex); break;
+        case 'adapters':      populateAdapters(msg.adapters, msg.defaultIndex, msg.switches); break;
         case 'templates':     populateTemplates(msg.templates); break;
         case 'alert':         showModal('Error', msg.message, 'OK'); break;
         case 'prereqRequired': onPrereqRequired(); break;
@@ -187,7 +187,7 @@ function onFullState(msg) {
     renderVmTable();
     revalidateVmName();
     if (msg.hostInfo) updateHostInfo(msg.hostInfo);
-    if (msg.adapters) populateAdapters(msg.adapters, msg.defaultAdapter);
+    if (msg.adapters) populateAdapters(msg.adapters, msg.defaultAdapter, msg.switches);
     if (msg.templates) populateTemplates(msg.templates);
     if (!minSizeReported) {
         minSizeReported = true;
@@ -336,22 +336,60 @@ function onDiskSpace(msg) {
 /* ---- Adapters ---- */
 
 var currentAdapters = [];
+var currentSwitches = [];
 
-function populateAdapters(adapters, defaultIdx) {
-    var sel = document.getElementById('net-adapter');
-    sel.innerHTML = '<option value="">(Auto)</option>';
-    currentAdapters = adapters || [];
-    if (adapters) {
+function appendAdapterOptions(sel, adapters, switches) {
+    if (adapters && adapters.length) {
+        var phys = document.createElement('optgroup');
+        phys.label = 'Physical adapters';
         adapters.forEach(function(a) {
             var opt = document.createElement('option');
             opt.value = a;
             opt.textContent = a;
-            sel.appendChild(opt);
+            phys.appendChild(opt);
         });
+        sel.appendChild(phys);
     }
+    if (switches && switches.length) {
+        var sw = document.createElement('optgroup');
+        sw.label = 'Switches';
+        switches.forEach(function(s) {
+            var opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = s.name + ' (switch)';
+            sw.appendChild(opt);
+        });
+        sel.appendChild(sw);
+    }
+}
+
+function populateAdapters(adapters, defaultIdx, switches) {
+    var sel = document.getElementById('net-adapter');
+    sel.innerHTML = '<option value="">(Auto)</option>';
+    currentAdapters = adapters || [];
+    currentSwitches = switches || [];
+    appendAdapterOptions(sel, currentAdapters, currentSwitches);
     if (typeof defaultIdx === 'number' && defaultIdx >= 0 && defaultIdx < sel.options.length) {
         sel.selectedIndex = defaultIdx;
     }
+}
+
+function populateEditAdapter(vm) {
+    var sel = document.getElementById('edit-net-adapter');
+    sel.innerHTML = '<option value="">(Auto)</option>';
+    appendAdapterOptions(sel, currentAdapters, currentSwitches);
+    var value = vm.netAdapter || '';
+    var found = false;
+    for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === value) { found = true; break; }
+    }
+    if (!found && value) {
+        var opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = value + ' (current)';
+        sel.appendChild(opt);
+    }
+    sel.value = value;
 }
 
 /* ---- Templates ---- */
@@ -660,11 +698,22 @@ function hidePassword() {
 }
 
 function onNetModeChange() {
-    /* Adapter dropdown only relevant for External */
+    /* Adapter/switch dropdown and VLAN input only relevant for External */
     var mode = parseInt(document.getElementById('net-mode').value);
     var show = (!hostBridge.isMac && mode === 2) ? '' : 'none';
     document.getElementById('net-adapter').style.display = show;
     document.getElementById('net-adapter-label').style.display = show;
+    document.getElementById('vlan-id').style.display = show;
+    document.getElementById('vlan-label').style.display = show;
+}
+
+function onEditNetModeChange() {
+    var mode = parseInt(document.getElementById('edit-net-mode').value);
+    var show = (!hostBridge.isMac && mode === 2) ? '' : 'none';
+    document.getElementById('edit-net-adapter').style.display = show;
+    document.getElementById('edit-net-adapter-label').style.display = show;
+    document.getElementById('edit-vlan-id').style.display = show;
+    document.getElementById('edit-vlan-label').style.display = show;
 }
 onNetModeChange();
 
@@ -677,6 +726,8 @@ function gatherConfig() {
        Linux-version dropdown is dormant (see applyOsTypeUI). */
     var imagePath = osType === 'macos27' ? undefined : document.getElementById('image-path').value.trim();
     var imageIndex = document.getElementById('image-index').valueAsNumber;
+    var netMode = hostBridge.isMac ? 1 : parseInt(document.getElementById('net-mode').value);
+    var vlanId = document.getElementById('vlan-id').valueAsNumber;
     return {
         name:        document.getElementById('vm-name').value.trim(),
         osType:      osType,
@@ -694,8 +745,10 @@ function gatherConfig() {
         cpuCores:    document.getElementById('cpu-cores').valueAsNumber,
         gpuMode:     gpu.gpuMode,
         gpuId:       gpu.gpuId,
-        networkMode: hostBridge.isMac ? 1 : parseInt(document.getElementById('net-mode').value),
+        networkMode: netMode,
         netAdapter:  hostBridge.isMac ? '' : document.getElementById('net-adapter').value,
+        vlanId:      (netMode === 2 && Number.isInteger(vlanId) && vlanId >= 0 && vlanId <= 4094)
+            ? vlanId : undefined,
         adminUser:   document.getElementById('admin-user').value.trim(),
         adminPass:   document.getElementById('admin-pass').value,
         adminConfirm: document.getElementById('admin-confirm').value,
@@ -717,6 +770,7 @@ function onSshToggle() {
 function clearCreateForm() {
     document.getElementById('image-path').value = '';
     document.getElementById('image-index').value = 1;
+    document.getElementById('vlan-id').value = 0;
     selectTemplate('', templateDefaultLabel());
     updateCreateButtons();
 }
@@ -1257,6 +1311,9 @@ function openEditVmModal(idx) {
     document.getElementById('edit-cpu-cores').value = vm.cpuCores;
     setGpuSelection('edit-gpu-mode', vm);
     document.getElementById('edit-net-mode').value = String(vm.networkMode);
+    populateEditAdapter(vm);
+    document.getElementById('edit-vlan-id').value = vm.vlanId || 0;
+    onEditNetModeChange();
     updateEditVmModal();
     document.getElementById('edit-vm-overlay').classList.add('active');
     document.getElementById('edit-ram-size').focus();
@@ -1287,6 +1344,8 @@ function editVmValues() {
     if (!hostBridge.isMac) {
         Object.assign(values, selectedGpu('edit-gpu-mode'));
         values.networkMode = Number(document.getElementById('edit-net-mode').value);
+        values.netAdapter = document.getElementById('edit-net-adapter').value;
+        values.vlanId = document.getElementById('edit-vlan-id').valueAsNumber;
     }
     return values;
 }
@@ -1298,6 +1357,9 @@ function editVmValidationError(values) {
     if (values.ramMb !== editVmState.initial.ramMb &&
         (!Number.isInteger(values.ramMb) || values.ramMb < minRam || values.ramMb > 2147483647))
         return 'RAM must be a whole number of at least ' + minRam + ' MB.';
+    if (!hostBridge.isMac && values.networkMode === 2 &&
+        (!Number.isInteger(values.vlanId) || values.vlanId < 0 || values.vlanId > 4094))
+        return 'VLAN ID must be a whole number between 0 and 4094.';
     return '';
 }
 
@@ -1309,7 +1371,11 @@ function updateEditVmModal() {
     var values = editVmValues();
     var conflict = false;
     var fields = { ramMb: 'edit-ram-size', cpuCores: 'edit-cpu-cores' };
-    if (!hostBridge.isMac) fields.networkMode = 'edit-net-mode';
+    if (!hostBridge.isMac) {
+        fields.networkMode = 'edit-net-mode';
+        fields.netAdapter = 'edit-net-adapter';
+        fields.vlanId = 'edit-vlan-id';
+    }
     Object.keys(fields).forEach(function(field) {
         if (vm[field] === editVmState.initial[field]) return;
         if (values[field] !== editVmState.initial[field] && values[field] !== vm[field]) {
@@ -1317,8 +1383,10 @@ function updateEditVmModal() {
             return;
         }
         document.getElementById(fields[field]).value = vm[field];
+        if (field === 'netAdapter') populateEditAdapter(vm);
         editVmState.initial[field] = vm[field];
     });
+    onEditNetModeChange();
     if (!hostBridge.isMac && gpuSelectionValue(vm) !== gpuSelectionValue(editVmState.initial)) {
         if (gpuSelectionValue(values) !== gpuSelectionValue(editVmState.initial) &&
             gpuSelectionValue(values) !== gpuSelectionValue(vm)) conflict = true;
@@ -1363,6 +1431,7 @@ function saveEditVm() {
 
 document.getElementById('edit-vm-overlay').addEventListener('input', updateEditVmModal);
 document.getElementById('edit-vm-overlay').addEventListener('change', updateEditVmModal);
+document.getElementById('edit-net-mode').addEventListener('change', onEditNetModeChange);
 document.getElementById('edit-ram-size').addEventListener('change', function() {
     if (Number.isInteger(this.valueAsNumber)) this.value = alignRamMb(this.valueAsNumber);
     updateEditVmModal();

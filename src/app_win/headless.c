@@ -281,11 +281,13 @@ static int append_vm_json(char *out, int cap, int pos, VmInstance *v)
     asb_vm_disk_directory((AsbVm)v, disk_directory, MAX_PATH);
     pos += sprintf_s(out + pos, cap - pos, ",\"diskDirectory\":");
     pos = append_wstr(out, cap, pos, disk_directory);
+    pos += sprintf_s(out + pos, cap - pos, ",\"netAdapter\":");
+    pos = append_wstr(out, cap, pos, v->net_adapter);
     pos += sprintf_s(out + pos, cap - pos,
         ",\"state\":\"%s\",\"running\":%s,\"agentOnline\":%s,\"installComplete\":%s,"
         "\"building\":%s,\"progress\":%d,\"sshState\":%d,\"sshPort\":%lu,"
         "\"ramMb\":%lu,\"hddGb\":%lu,\"cpuCores\":%lu,\"gpuMode\":%d,\"networkMode\":%d,"
-        "\"displayOpen\":%s,\"gpuId\":",
+        "\"vlanId\":%lu,\"displayOpen\":%s,\"gpuId\":",
         derive_state(v),
         v->running ? "true" : "false", v->agent_online ? "true" : "false",
         v->install_complete ? "true" : "false", v->building_vhdx ? "true" : "false",
@@ -293,7 +295,7 @@ static int append_vm_json(char *out, int cap, int pos, VmInstance *v)
         (v->ssh_key_deployed && v->ssh_state == 2) ? 4 : v->ssh_state,   /* 4 = ready + key deployed */
         (unsigned long)v->ssh_port,
         (unsigned long)v->ram_mb, (unsigned long)v->hdd_gb, (unsigned long)v->cpu_cores,
-        v->gpu_mode, v->network_mode,
+        v->gpu_mode, v->network_mode, (unsigned long)v->vlan_id,
         display_is_open(v->unique_id) ? "true" : "false");
     pos = append_wstr(out, cap, pos, v->gpu_id);
     pos += sprintf_s(out + pos, cap - pos, ",\"gpuName\":");
@@ -1551,6 +1553,7 @@ static int handle_request(PHTTP_REQUEST req)
             if (verb == HttpVerbPUT) {   /* edit (PUT instead of PATCH: PATCH isn't in the http.sys verb enum) */
                 const wchar_t *body=request_body();
                 wchar_t gpu_id[512] = {0};
+                wchar_t edit_adapter[256] = {0};
                 int iv, gpu_mode = GPU_DEFAULT; BOOL has_gpu;
                 HRESULT hr = S_OK;
                 /* config is locked while building or running -- return a clean 409,
@@ -1611,6 +1614,16 @@ static int handle_request(PHTTP_REQUEST req)
                 if (api_json_get_int(body, L"networkMode", &iv)) {
                     if (iv < 0 || iv > 3) { send_err(req->RequestId, 400, "Bad Request", "invalid_arg", "networkMode must be 0 (None), 1 (NAT), 2 (External), or 3 (Internal)"); return 0; }
                     hr = asb_vm_set_network(vm, iv);
+                }
+                if (api_json_get_string(body, L"netAdapter", edit_adapter, ARRAYSIZE(edit_adapter))) {
+                    hr = asb_vm_set_net_adapter(vm, edit_adapter);
+                }
+                if (api_json_get_int(body, L"vlanId", &iv)) {
+                    if (iv < 0 || iv > 4094) {
+                        send_err(req->RequestId, 400, "Bad Request", "invalid_arg", "vlanId must be between 0 and 4094");
+                        return 0;
+                    }
+                    hr = asb_vm_set_vlan(vm, (DWORD)iv);
                 }
                 asb_save();
                 if (SUCCEEDED(hr)) {

@@ -342,6 +342,7 @@ static void build_vm_json(JsonBuilder *jb, int i)
     jb_string(jb, L"gpuName", v->gpu_name);
     jb_int(jb, L"networkMode", v->network_mode);
     jb_string(jb, L"netAdapter", v->net_adapter);
+    jb_int(jb, L"vlanId", (int)v->vlan_id);
     jb_bool(jb, L"isTemplate", v->is_template);
     if (v->is_template) {
         wchar_t template_id[ASB_TEMPLATE_ID_TEXT_SIZE];
@@ -504,6 +505,52 @@ typedef struct {
     int first_wifi;
 } AdapterList;
 
+typedef struct {
+    wchar_t names[32][256];
+    GUID ids[32];
+    int count;
+} SwitchList;
+
+static void switch_enum_cb(const wchar_t *name, const GUID *id, void *ctx)
+{
+    SwitchList *sl = (SwitchList *)ctx;
+    if (sl->count >= 32) return;
+    wcscpy_s(sl->names[sl->count], 256, name);
+    sl->ids[sl->count] = *id;
+    sl->count++;
+}
+
+/* Bare GUID text, matching the form stored in vms.cfg. */
+static void switch_guid_text(const GUID *id, wchar_t *out, size_t cap)
+{
+    wchar_t braced[64];
+    size_t len;
+    StringFromGUID2(id, braced, ARRAYSIZE(braced));
+    len = wcslen(braced);
+    if (len >= 2 && braced[0] == L'{' && braced[len - 1] == L'}') {
+        wcsncpy_s(out, cap, braced + 1, _TRUNCATE);
+        out[wcslen(out) - 1] = L'\0';
+    } else {
+        wcscpy_s(out, cap, braced);
+    }
+}
+
+static void append_switches_json(JsonBuilder *jb, const SwitchList *sl)
+{
+    int i;
+    jb_array_begin(jb, L"switches");
+    for (i = 0; i < sl->count; i++) {
+        wchar_t id[64];
+        if (i > 0) jb_append(jb, L",");
+        jb_object_begin(jb);
+        jb_string(jb, L"name", sl->names[i]);
+        switch_guid_text(&sl->ids[i], id, ARRAYSIZE(id));
+        jb_string(jb, L"id", id);
+        jb_object_end(jb);
+    }
+    jb_array_end(jb);
+}
+
 static void adapter_enum_cb(const wchar_t *name, int if_type, void *ctx)
 {
     AdapterList *al = (AdapterList *)ctx;
@@ -518,16 +565,19 @@ static void adapter_enum_cb(const wchar_t *name, int if_type, void *ctx)
 
 static void send_adapters(void)
 {
-    wchar_t buf[8192];
+    wchar_t buf[16384];
     JsonBuilder jb;
     AdapterList al;
+    SwitchList sl;
     int def_idx, i;
 
     al.count = 0; al.first_eth = -1; al.first_wifi = -1;
     hcn_enum_adapters(adapter_enum_cb, &al);
+    sl.count = 0;
+    hcn_enum_switches(switch_enum_cb, &sl);
     def_idx = (al.first_eth >= 0) ? al.first_eth : (al.first_wifi >= 0) ? al.first_wifi : 0;
 
-    jb_init(&jb, buf, 8192);
+    jb_init(&jb, buf, ARRAYSIZE(buf));
     jb_object_begin(&jb);
     jb_string(&jb, L"type", L"adapters");
     jb_array_begin(&jb, L"adapters");
@@ -538,6 +588,7 @@ static void send_adapters(void)
         jb_append(&jb, L"\"");
     }
     jb_array_end(&jb);
+    append_switches_json(&jb, &sl);
     jb_int(&jb, L"defaultIndex", def_idx);
     jb_object_end(&jb);
     webview2_post(buf);
@@ -613,9 +664,12 @@ static void send_full_state(void)
     /* Adapters */
     {
         AdapterList al;
+        SwitchList sl;
         int def_idx;
         al.count = 0; al.first_eth = -1; al.first_wifi = -1;
         hcn_enum_adapters(adapter_enum_cb, &al);
+        sl.count = 0;
+        hcn_enum_switches(switch_enum_cb, &sl);
         def_idx = (al.first_eth >= 0) ? al.first_eth : (al.first_wifi >= 0) ? al.first_wifi : 0;
 
         jb_array_begin(&jb, L"adapters");
@@ -626,6 +680,7 @@ static void send_full_state(void)
             jb_append(&jb, L"\"");
         }
         jb_array_end(&jb);
+        append_switches_json(&jb, &sl);
         jb_int(&jb, L"defaultAdapter", def_idx);
     }
 
@@ -1382,6 +1437,8 @@ static void handle_webview2_message(const wchar_t *json)
                     if (!error) hr = asb_vm_set_gpu_selection(vm, mode, gpu_id);
                 }
                 else if (wcscmp(field, L"networkMode") == 0) hr = asb_vm_set_network(vm, _wtoi(value));
+                else if (wcscmp(field, L"netAdapter") == 0) hr = asb_vm_set_net_adapter(vm, value);
+                else if (wcscmp(field, L"vlanId") == 0) hr = asb_vm_set_vlan(vm, (DWORD)_wtoi(value));
                 if (FAILED(hr)) ui_show_alert(error ? error : L"VM configuration could not be updated.");
                 else asb_save();
             }

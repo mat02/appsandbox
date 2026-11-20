@@ -207,6 +207,8 @@ ASB_API HRESULT asb_vm_set_cpu(AsbVm vm, DWORD cores);
 ASB_API HRESULT asb_vm_set_gpu(AsbVm vm, int gpu_mode);
 ASB_API HRESULT asb_vm_set_gpu_selection(AsbVm vm, int gpu_mode, const wchar_t *gpu_id);
 ASB_API HRESULT asb_vm_set_network(AsbVm vm, int mode);
+ASB_API HRESULT asb_vm_set_net_adapter(AsbVm vm, const wchar_t *adapter);
+ASB_API HRESULT asb_vm_set_vlan(AsbVm vm, DWORD vlan_id);
 
 /* ---- Snapshots ---- */
 
