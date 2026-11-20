@@ -498,12 +498,14 @@ static BOOL valid_mac_address(const wchar_t *address)
 
 HRESULT hcn_create_endpoint(const GUID *network_id, GUID *endpoint_id,
                             wchar_t *endpoint_guid_str, size_t str_len,
-                            const char *nat_ip, const wchar_t *mac_address)
+                            const char *nat_ip, const wchar_t *mac_address,
+                            DWORD vlan_id)
 {
     wchar_t net_guid_str[64];
     wchar_t ep_guid_str[64];
     wchar_t settings[1024];
     wchar_t mac_settings[64] = L"";
+    wchar_t vlan_settings[160] = L"";
     void *network = NULL;
     void *endpoint = NULL;
     PWSTR error_record = NULL;
@@ -514,6 +516,10 @@ HRESULT hcn_create_endpoint(const GUID *network_id, GUID *endpoint_id,
     if (!mac_address || !valid_mac_address(mac_address))
         return E_INVALIDARG;
     swprintf_s(mac_settings, ARRAYSIZE(mac_settings), L",\"MacAddress\":\"%s\"", mac_address);
+    if (vlan_id >= 1 && vlan_id <= 4094)
+        swprintf_s(vlan_settings, ARRAYSIZE(vlan_settings),
+            L",\"Policies\":[{\"Type\":\"VLAN\",\"Settings\":{\"IsolationId\":%lu}}]",
+            vlan_id);
 
     /* Open the network */
     hr = pfnOpenNet(network_id, &network, &error_record);
@@ -546,7 +552,7 @@ HRESULT hcn_create_endpoint(const GUID *network_id, GUID *endpoint_id,
             L"{"
             L"\"SchemaVersion\":{\"Major\":2,\"Minor\":0},"
             L"\"HostComputeNetwork\":\"%s\""
-            L"%s}", net_guid_str, mac_settings);
+            L"%s%s}", net_guid_str, mac_settings, vlan_settings);
     }
 
     hr = pfnCreateEp(network, endpoint_id, settings, &endpoint, &error_record);

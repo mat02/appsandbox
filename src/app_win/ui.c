@@ -1214,6 +1214,13 @@ static void handle_webview2_message(const wchar_t *json)
             }
             cfg.image_index = (DWORD)val;
         }
+        if (json_get_int(json, L"vlanId", &val)) {
+            if (val < 0 || val > 4094) {
+                ui_show_alert(L"VLAN ID must be between 0 and 4094.");
+                return;
+            }
+            cfg.vlan_id = (DWORD)val;
+        }
         json_get_bool(json, L"testMode", &cfg.test_mode);
         json_get_bool(json, L"sshEnabled", &cfg.ssh_enabled);
         json_get_bool(json, L"sshDeployKey", &cfg.ssh_deploy_key);

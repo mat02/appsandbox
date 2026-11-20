@@ -59,6 +59,7 @@ typedef struct {
     DWORD  cpu_cores;
     int    gpu_mode;               /* ASB_GPU_NONE or ASB_GPU_DEFAULT */
     int    network_mode;           /* ASB_NET_NONE / NAT / EXTERNAL / INTERNAL */
+    DWORD  vlan_id;                /* External trunk VLAN (0 = untagged) */
     const wchar_t *net_adapter;    /* for external mode, or NULL for auto */
     const wchar_t *username;
     const wchar_t *password;

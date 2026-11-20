@@ -40,6 +40,7 @@ typedef struct {
     int     gpu_mode;
     wchar_t gpu_id[512];
     int     network_mode;         /* NET_NONE, NET_NAT, NET_EXTERNAL, or NET_INTERNAL */
+    DWORD   vlan_id;              /* External trunk VLAN (0 = untagged) */
     wchar_t mac_address[18];
     wchar_t admin_user[128];      /* Guest local admin username */
     wchar_t admin_pass[256];      /* Guest local admin password */
@@ -66,6 +67,7 @@ typedef struct {
     wchar_t     gpu_name[256];
     wchar_t     gpu_id[512];
     int         network_mode;
+    DWORD       vlan_id;              /* External trunk VLAN (0 = untagged) */
     wchar_t     net_adapter[256];     /* Adapter name for External network */
     wchar_t     mac_address[18];
     GUID        network_id;

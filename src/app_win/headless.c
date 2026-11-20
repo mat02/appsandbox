@@ -1419,6 +1419,15 @@ static int handle_request(PHTTP_REQUEST req)
                 }
                 cfg.image_index = (DWORD)iv;
             }
+            if (api_json_get_int(body, L"vlanId", &iv)) {
+                if (iv < 0 || iv > 4094) {
+                    SecureZeroMemory(pass, sizeof(pass));
+                    send_err(req->RequestId, 400, "Bad Request", "invalid_arg",
+                             "vlanId must be between 0 and 4094");
+                    return 0;
+                }
+                cfg.vlan_id = (DWORD)iv;
+            }
             if (api_json_get_bool(body, L"testMode", &bv)) cfg.test_mode = bv;
             if (api_json_get_bool(body, L"sshEnabled", &bv)) cfg.ssh_enabled = bv;
             if (api_json_get_bool(body, L"sshDeployKey", &bv)) cfg.ssh_deploy_key = bv;

@@ -744,6 +744,8 @@ static BOOL save_vm_list(void)
         if (VM_AT(i).gpu_id[0])
             fwprintf(f, L"GpuId=%s\n", VM_AT(i).gpu_id);
         fwprintf(f, L"NetworkMode=%d\n", VM_AT(i).network_mode);
+        if (VM_AT(i).vlan_id)
+            fwprintf(f, L"VlanId=%lu\n", VM_AT(i).vlan_id);
         if (VM_AT(i).net_adapter[0] != L'\0')
             fwprintf(f, L"NetAdapter=%s\n", VM_AT(i).net_adapter);
         if (VM_AT(i).mac_address[0])
@@ -925,6 +927,8 @@ static void load_vm_list(void)
             { /* ignored - backwards compat */ }
         else if (wcsncmp(line, L"NetworkMode=", 12) == 0)
             vm->network_mode = _wtoi(line + 12);
+        else if (wcsncmp(line, L"VlanId=", 7) == 0)
+            vm->vlan_id = (DWORD)_wtoi(line + 7);
         else if (wcsncmp(line, L"NetAdapter=", 11) == 0)
             wcscpy_s(vm->net_adapter, 256, line + 11);
         else if (wcsncmp(line, L"MacAddress=", 11) == 0)
@@ -1304,14 +1308,15 @@ static BOOL allocate_nat_ip(VmInstance *vm)
 static HRESULT try_endpoint_with_retry(const GUID *net_id, GUID *ep_id,
                                        wchar_t *ep_guid_str, size_t str_len,
                                        char *nat_ip, size_t nat_ip_size,
-                                       BOOL is_nat, const wchar_t *mac_address)
+                                       BOOL is_nat, DWORD vlan_id,
+                                       const wchar_t *mac_address)
 {
     HRESULT hr;
     int retry;
 
     hr = hcn_create_endpoint(net_id, ep_id, ep_guid_str, str_len,
                               (is_nat && nat_ip && nat_ip[0]) ? nat_ip : NULL,
-                              mac_address);
+                              mac_address, vlan_id);
     if (SUCCEEDED(hr) || !is_nat || !nat_ip || !nat_ip[0]) return hr;
 
     asb_log(L"Endpoint failed for %S, trying next IP...", nat_ip);
@@ -1321,7 +1326,7 @@ static HRESULT try_endpoint_with_retry(const GUID *net_id, GUID *ep_id,
         sprintf_s(nat_ip, nat_ip_size, "%d.%d.%d.%d", a, b, c, d + 1);
         asb_log(L"Retrying with %S...", nat_ip);
         hr = hcn_create_endpoint(net_id, ep_id, ep_guid_str, str_len, nat_ip,
-                                  mac_address);
+                                  mac_address, vlan_id);
         if (SUCCEEDED(hr)) return hr;
     }
     return hr;
@@ -1366,6 +1371,7 @@ static DWORD WINAPI start_vm_thread(LPVOID param)
                                           endpoint_guid_str, 64,
                                           vm->nat_ip, sizeof(vm->nat_ip),
                                           args->network_mode == NET_NAT,
+                                          vm->vlan_id,
                                           vm->mac_address);
             if (SUCCEEDED(hr) && args->network_mode == NET_NAT) save_vm_list();
             if (FAILED(hr)) {
@@ -1727,6 +1733,7 @@ disk_ready:
             hr = try_endpoint_with_retry(&args->network_id, &args->endpoint_id,
                                           args->endpoint_guid, 64,
                                           nat_ip, ip_size, is_nat,
+                                          args->config.vlan_id,
                                           args->config.mac_address);
             if (SUCCEEDED(hr)) {
                 args->has_network = TRUE;
@@ -2913,6 +2920,7 @@ static DWORD WINAPI linux_create_thread(LPVOID param)
             hr = try_endpoint_with_retry(&args->network_id, &args->endpoint_id,
                                           args->endpoint_guid, 64,
                                           nat_ip, ip_size, is_nat,
+                                          args->config.vlan_id,
                                           args->config.mac_address);
             if (SUCCEEDED(hr)) {
                 args->has_network = TRUE;
@@ -3516,6 +3524,7 @@ ASB_API HRESULT asb_vm_create_with_id(const AsbVmConfig *config, AsbVmId *create
     if (config->gpu_id && config->gpu_id[0])
         wcscpy_s(cfg.gpu_id, ARRAYSIZE(cfg.gpu_id), find_gpu(config->gpu_id)->interface_path);
     cfg.network_mode = config->network_mode;
+    cfg.vlan_id = config->vlan_id;
     cfg.test_mode = config->test_mode;
     cfg.ssh_enabled = config->ssh_enabled;
     /* Key deploy needs SSH; prepare the AppSandbox keypair now so the build path
@@ -3704,6 +3713,7 @@ ASB_API HRESULT asb_vm_create_with_id(const AsbVmConfig *config, AsbVmId *create
             wcscpy_s(inst->gpu_id, ARRAYSIZE(inst->gpu_id), cfg.gpu_id);
             update_vm_gpu_name(inst);
             inst->network_mode = cfg.network_mode;
+            inst->vlan_id = cfg.vlan_id;
             inst->is_template = is_template_create;
             inst->test_mode = cfg.test_mode;
             wcscpy_s(inst->admin_user, 128, cfg.admin_user);
@@ -3819,6 +3829,7 @@ build_failed:
             wcscpy_s(inst->gpu_id, ARRAYSIZE(inst->gpu_id), cfg.gpu_id);
             update_vm_gpu_name(inst);
             inst->network_mode = cfg.network_mode;
+            inst->vlan_id = cfg.vlan_id;
             inst->is_template = FALSE;
             inst->test_mode = cfg.test_mode;
             wcscpy_s(inst->admin_user, 128, cfg.admin_user);
@@ -3938,6 +3949,7 @@ build_failed:
                                           endpoint_guid_str, 64,
                                           inst->nat_ip, sizeof(inst->nat_ip),
                                           cfg.network_mode == NET_NAT,
+                                          inst->vlan_id,
                                           inst->mac_address);
             if (SUCCEEDED(hr) && cfg.network_mode == NET_NAT) save_vm_list();
             if (FAILED(hr)) {
@@ -4083,6 +4095,7 @@ ASB_API HRESULT asb_vm_start(AsbVm vm, int snap_idx, int branch_idx,
         args->config.gpu_mode = inst->gpu_mode;
         wcscpy_s(args->config.gpu_id, ARRAYSIZE(args->config.gpu_id), inst->gpu_id);
         args->config.network_mode = inst->network_mode;
+        args->config.vlan_id = inst->vlan_id;
         wcscpy_s(args->config.mac_address, ARRAYSIZE(args->config.mac_address), inst->mac_address);
         args->config.test_mode = inst->test_mode;
         wcscpy_s(args->config.admin_user, 128, inst->admin_user);
